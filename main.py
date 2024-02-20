@@ -158,7 +158,12 @@ def evaluate(data_tr, data_te):
             end_idx = min(start_idx + args.batch_size, N)
             data = data_tr[e_idxlist[start_idx:end_idx]]
             heldout_data = data_te[e_idxlist[start_idx:end_idx]]
-
+    
+            # cno : avoid users who have no clicks in heldout_data
+            u_idxlist_wo_any_iteracts = [i for i, x in enumerate(heldout_data.toarray().sum(axis=1)) if x >0]
+            data = data[u_idxlist_wo_any_iteracts]
+            heldout_data = heldout_data[u_idxlist_wo_any_iteracts]
+            
             data_tensor = naive_sparse2tensor(data).to(device)
 
             if args.total_anneal_steps > 0:
