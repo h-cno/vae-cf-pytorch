@@ -137,9 +137,9 @@ class MultiVAE(nn.Module):
 
             # Normal Initialization for Biases
             layer.bias.data.normal_(0.0, 0.001)
-
-
-class ProbMultiVAE(nn.Module):
+            
+            
+class StochasticMultiVAE(nn.Module):
     """
     Container module for Multi-VAE.
 
@@ -187,12 +187,12 @@ class ProbMultiVAE(nn.Module):
         return mu, logvar
 
     def reparameterize(self, mu, logvar):
-        if self.training:
-            std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
-            return eps.mul(std).add_(mu)
-        else:
-            return mu
+        # if self.training:
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return eps.mul(std).add_(mu)
+        # else:
+            # return mu
 
     def decode(self, z):
         h = z

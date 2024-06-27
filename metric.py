@@ -68,3 +68,31 @@ def Recall_at_k_batch(X_pred, heldout_batch, k=100):
     # recall = tmp / np.minimum(k, X_true_binary.sum(axis=1))
     recall = tmp / X_true_binary.sum(axis=1)
     return recall
+
+
+def get_idx_topk(X_pred, k=100):
+    
+    batch_users = X_pred.shape[0]
+    idx_topk_part = bn.argpartition(-X_pred, k, axis=1)
+    topk_part = X_pred[np.arange(batch_users)[:, np.newaxis],
+                       idx_topk_part[:, :k]]
+    idx_part = np.argsort(-topk_part, axis=1)
+
+    idx_topk = idx_topk_part[np.arange(batch_users)[:, np.newaxis], idx_part]
+    return idx_topk
+
+
+def HitRate_at_k_batch_and_indexes(X_pred, heldout_batch, k=100):
+    '''
+    Hit Rate@k for binary relevance
+    '''
+    batch_users = X_pred.shape[0]
+
+    idx = bn.argpartition(-X_pred, k, axis=1)
+    X_pred_binary = np.zeros_like(X_pred, dtype=bool)
+    X_pred_binary[np.arange(batch_users)[:, np.newaxis], idx[:, :k]] = True
+
+    X_true_binary = (heldout_batch > 0).toarray()
+    hits = np.where(np.logical_and(X_true_binary, X_pred_binary).sum(axis=1) > 0, 1 ,0)
+        
+    return hits, idx
