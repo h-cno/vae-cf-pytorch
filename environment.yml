@@ -10,4 +10,5 @@ dependencies:
   - ipykernel
   - matplotlib
   - jupyter
+  - tqdm
 prefix: /Users/s14163/anaconda3/envs/prob-vae-pytorch
