@@ -11,4 +11,6 @@ dependencies:
   - matplotlib
   - jupyter
   - tqdm
+  - cupy
+  - faiss
 prefix: /Users/s14163/anaconda3/envs/prob-vae-pytorch
