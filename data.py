@@ -1,3 +1,5 @@
+import argparse
+# import hdf5_getters
 import os
 import pandas as pd
 from scipy import sparse
@@ -5,7 +7,7 @@ import numpy as np
 
 class DataLoader():
     '''
-    Load Movielens-20m dataset
+    Load dataset
     '''
     def __init__(self, path):
         self.pro_dir = os.path.join(path, 'pro_sg')
@@ -68,19 +70,23 @@ def get_count(tp, id):
     return count
 
 def filter_triplets(tp, min_uc=5, min_sc=0):
+    # print(tp)
     if min_sc > 0:
-        itemcount = get_count(tp, 'movieId')
-        tp = tp[tp['movieId'].isin(itemcount.index[itemcount['size'] >= min_sc])]
+        itemcount = get_count(tp, 'itemID')
+        # tp = tp[tp['itemID'].isin(itemcount.index[itemcount['size'] >= min_sc])]
+        tp = tp[tp['itemID'].isin(itemcount[itemcount['size'] >= min_sc].itemID)]
     
     if min_uc > 0:
-        usercount = get_count(tp, 'userId')
-        tp = tp[tp['userId'].isin(usercount.index[usercount['size'] >= min_uc])]
+        usercount = get_count(tp, 'userID')        
+        # tp = tp[tp['userID'].isin(usercount.index[usercount['size'] >= min_uc])]
+        tp = tp[tp['userID'].isin(usercount[usercount['size'] >= min_uc].userID)]
     
-    usercount, itemcount = get_count(tp, 'userId'), get_count(tp, 'movieId')
+    usercount, itemcount = get_count(tp, 'userID'), get_count(tp, 'itemID')
+    # print(tp)
     return tp, usercount, itemcount
 
 def split_train_test_proportion(data, test_prop=0.2):
-    data_grouped_by_user = data.groupby('userId')
+    data_grouped_by_user = data.groupby('userID')
     tr_list, te_list = list(), list()
 
     np.random.seed(98765)
@@ -104,41 +110,259 @@ def split_train_test_proportion(data, test_prop=0.2):
     return data_tr, data_te
 
 def numerize(tp, profile2id, show2id):
-    uid = tp['userId'].apply(lambda x: profile2id[x])
-    sid = tp['movieId'].apply(lambda x: show2id[x])
+    uid = tp['userID'].apply(lambda x: profile2id[x])
+    sid = tp['itemID'].apply(lambda x: show2id[x])
     return pd.DataFrame(data={'uid': uid, 'sid': sid}, columns=['uid', 'sid'])
 
 
 
 if __name__ == '__main__':
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("dataset_name", choices=[
+        'ml-20m',
+        'netflix',
+        'msd',
+    ])
+    
+    args = parser.parse_args( )
+    
+    match args.dataset_name:
+        case 'ml-20m':
+            print("Load and Preprocess Movielens-20m dataset")
+            # Load Data
+            DATA_DIR = 'dataset/ml-20m/'
+            raw_data = pd.read_csv(os.path.join(DATA_DIR, 'ml-20m.inter'), delimiter = "\t", header=0)
+            
+            # Unify Column Names
+            raw_data.rename(columns={
+                'item_id:token': 'itemID',
+                'user_id:token': 'userID',
+                'rating:float': 'rating',
+                'timestamp:float': 'timestamp',
+            },inplace=True)
 
-    print("Load and Preprocess Movielens-20m dataset")
-    # print("Load and Preprocess Movielens-25m dataset")
-    # Load Data
-    DATA_DIR = 'ml-20m/'
-    # DATA_DIR = 'ml-25m/'
-    raw_data = pd.read_csv(os.path.join(DATA_DIR, 'ratings.csv'), header=0)
-    raw_data = raw_data[raw_data['rating'] > 3.5]
+            # Filter Data
+            raw_data = raw_data[raw_data['rating'] > 3.5]
+            raw_data, user_activity, item_popularity = filter_triplets(raw_data)
 
-    # Filter Data
-    raw_data, user_activity, item_popularity = filter_triplets(raw_data)
+            # Shuffle User Indices
+            unique_uid = user_activity.index
+            np.random.seed(98765)
+            idx_perm = np.random.permutation(unique_uid.size)
+            unique_uid = unique_uid[idx_perm]
 
-    # Shuffle User Indices
-    unique_uid = user_activity.index
-    np.random.seed(98765)
-    idx_perm = np.random.permutation(unique_uid.size)
-    unique_uid = unique_uid[idx_perm]
+            n_users = unique_uid.size
+            # n_heldout_users = 10000
+            n_heldout_users = int(n_users/10)
 
-    n_users = unique_uid.size
-    n_heldout_users = 10000
+            # Split Train/Validation/Test User Indices
+            tr_users = unique_uid[:(n_users - n_heldout_users * 2)]
+            vd_users = unique_uid[(n_users - n_heldout_users * 2): (n_users - n_heldout_users)]
+            te_users = unique_uid[(n_users - n_heldout_users):]
 
+            train_plays = raw_data.loc[raw_data['userID'].isin(tr_users)]
+            unique_sid = pd.unique(train_plays['itemID'])
+
+            show2id = dict((sid, i) for (i, sid) in enumerate(unique_sid))
+            profile2id = dict((pid, i) for (i, pid) in enumerate(unique_uid))
+
+            pro_dir = os.path.join(DATA_DIR, 'pro_sg')
+
+            if not os.path.exists(pro_dir):
+                os.makedirs(pro_dir)
+
+            with open(os.path.join(pro_dir, 'unique_sid.txt'), 'w') as f:
+                for sid in unique_sid:
+                    f.write('%s\n' % sid)
+
+            vad_plays = raw_data.loc[raw_data['userID'].isin(vd_users)]
+            vad_plays = vad_plays.loc[vad_plays['itemID'].isin(unique_sid)]
+
+            vad_plays_tr, vad_plays_te = split_train_test_proportion(vad_plays)
+
+            test_plays = raw_data.loc[raw_data['userID'].isin(te_users)]
+            test_plays = test_plays.loc[test_plays['itemID'].isin(unique_sid)]
+
+            test_plays_tr, test_plays_te = split_train_test_proportion(test_plays)
+
+            train_data = numerize(train_plays, profile2id, show2id)
+            train_data.to_csv(os.path.join(pro_dir, 'train.csv'), index=False)
+
+            vad_data_tr = numerize(vad_plays_tr, profile2id, show2id)
+            vad_data_tr.to_csv(os.path.join(pro_dir, 'validation_tr.csv'), index=False)
+
+            vad_data_te = numerize(vad_plays_te, profile2id, show2id)
+            vad_data_te.to_csv(os.path.join(pro_dir, 'validation_te.csv'), index=False)
+
+            test_data_tr = numerize(test_plays_tr, profile2id, show2id)
+            test_data_tr.to_csv(os.path.join(pro_dir, 'test_tr.csv'), index=False)
+
+            test_data_te = numerize(test_plays_te, profile2id, show2id)
+            test_data_te.to_csv(os.path.join(pro_dir, 'test_te.csv'), index=False)
+
+        case 'netflix':
+            print("Load and Preprocess Netflix Dataset")
+            
+            # Load Data
+            DATA_DIR = 'dataset/netflix'
+            raw_data = pd.read_csv(os.path.join(DATA_DIR, 'netflix.inter'), delimiter = "\t",  header=0)
+            
+            # Unify Column Names
+            raw_data = raw_data.rename(columns={
+                'item_id:token': 'itemID',
+                'user_id:token': 'userID',
+                'rating:float': 'rating',
+                'timestamp:float': 'timestamp',
+            })
+            
+            # Filter Data
+            raw_data = raw_data[raw_data["rating"] >= 4]
+            raw_data, user_activity, item_popularity = filter_triplets(raw_data)
+
+            # Shuffle User Indices
+            unique_uid = user_activity.index
+            np.random.seed(98765)
+            idx_perm = np.random.permutation(unique_uid.size)
+            unique_uid = unique_uid[idx_perm]
+
+            n_users = unique_uid.size
+            # n_heldout_users = 10000
+            n_heldout_users = int(n_users/10)
+
+#             # Split Train/Validation/Test User Indices
+#             tr_users = unique_uid[:(n_users - n_heldout_users * 2)]
+#             vd_users = unique_uid[(n_users - n_heldout_users * 2): (n_users - n_heldout_users)]
+#             te_users = unique_uid[(n_users - n_heldout_users):]
+
+#             train_plays = raw_data.loc[raw_data['userID'].isin(tr_users)]
+#             unique_sid = pd.unique(train_plays['itemID'])
+
+#             show2id = dict((sid, i) for (i, sid) in enumerate(unique_sid))
+#             profile2id = dict((pid, i) for (i, pid) in enumerate(unique_uid))
+
+#             pro_dir = os.path.join(DATA_DIR, 'pro_sg')
+
+#             if not os.path.exists(pro_dir):
+#                 os.makedirs(pro_dir)
+
+#             with open(os.path.join(pro_dir, 'unique_sid.txt'), 'w') as f:
+#                 for sid in unique_sid:
+#                     f.write('%s\n' % sid)
+
+#             vad_plays = raw_data.loc[raw_data['userID'].isin(vd_users)]
+#             vad_plays = vad_plays.loc[vad_plays['itemID'].isin(unique_sid)]
+
+#             vad_plays_tr, vad_plays_te = split_train_test_proportion(vad_plays)
+
+#             test_plays = raw_data.loc[raw_data['userID'].isin(te_users)]
+#             test_plays = test_plays.loc[test_plays['itemID'].isin(unique_sid)]
+
+#             test_plays_tr, test_plays_te = split_train_test_proportion(test_plays)
+
+#             train_data = numerize(train_plays, profile2id, show2id)
+#             train_data.to_csv(os.path.join(pro_dir, 'train.csv'), index=False)
+
+#             vad_data_tr = numerize(vad_plays_tr, profile2id, show2id)
+#             vad_data_tr.to_csv(os.path.join(pro_dir, 'validation_tr.csv'), index=False)
+
+#             vad_data_te = numerize(vad_plays_te, profile2id, show2id)
+#             vad_data_te.to_csv(os.path.join(pro_dir, 'validation_te.csv'), index=False)
+
+#             test_data_tr = numerize(test_plays_tr, profile2id, show2id)
+#             test_data_tr.to_csv(os.path.join(pro_dir, 'test_tr.csv'), index=False)
+
+#             test_data_te = numerize(test_plays_te, profile2id, show2id)
+#             test_data_te.to_csv(os.path.join(pro_dir, 'test_te.csv'), index=False)
+            
+        
+        case 'msd':
+            print("Load and Preprocess Million Songs Dataset")
+            
+            # Load Data
+            DATA_DIR = 'dataset/msd/'
+            
+            raw_data = pd.read_csv(os.path.join(DATA_DIR, 'kaggle_visible_evaluation_triplets.txt'), delimiter = "\t", names=["userID", "itemID", "ratings"])
+            # item_data = pd.read_csv((os.path.join(DATA_DIR, 'kaggle_songs.txt'), names=["itemName", "itemID"]))
+
+            raw_data, user_activity, item_popularity = filter_triplets(raw_data)
+            
+            # Shuffle User Indices
+            unique_uid = user_activity.index
+            # unique_uid = user_activity
+            np.random.seed(98765)
+            idx_perm = np.random.permutation(unique_uid.size)
+            unique_uid = unique_uid[idx_perm]
+            # unique_uid = unique_uid.iloc[idx_perm]
+
+            n_users = unique_uid.size
+            # n_heldout_users = 10000
+            n_heldout_users = int(n_users/10)
+
+#             # Split Train/Validation/Test User Indices
+#             tr_users = unique_uid[:(n_users - n_heldout_users * 2)]
+#             vd_users = unique_uid[(n_users - n_heldout_users * 2): (n_users - n_heldout_users)]
+#             te_users = unique_uid[(n_users - n_heldout_users):]
+            
+#             train_plays = raw_data[raw_data['userID'].isin(user_activity.iloc[tr_users].userID)]
+#             # train_plays = raw_data[raw_data['userID'].isin(tr_users)]
+#             unique_sid = pd.unique(train_plays['itemID'])
+            
+#             unique_uid = user_activity.userID
+            
+#             # print(train_plays)
+
+#             show2id = dict((sid, i) for (i, sid) in enumerate(unique_sid))
+#             profile2id = dict((pid, i) for (i, pid) in enumerate(unique_uid))
+
+#             pro_dir = os.path.join(DATA_DIR, 'pro_sg')
+
+#             if not os.path.exists(pro_dir):
+#                 os.makedirs(pro_dir)
+
+#             with open(os.path.join(pro_dir, 'unique_sid.txt'), 'w') as f:
+#                 for sid in unique_sid:
+#                     f.write('%s\n' % sid)
+
+#             # vad_plays = raw_data.loc[raw_data['userID'].isin(vd_users)]
+#             vad_plays = raw_data[raw_data['userID'].isin(user_activity.iloc[vd_users].userID)]
+#             vad_plays = vad_plays.loc[vad_plays['itemID'].isin(unique_sid)]
+
+#             vad_plays_tr, vad_plays_te = split_train_test_proportion(vad_plays)
+
+#             # test_plays = raw_data.loc[raw_data['userID'].isin(te_users)]
+#             test_plays = raw_data[raw_data['userID'].isin(user_activity.iloc[vd_users].userID)]
+#             test_plays = test_plays.loc[test_plays['itemID'].isin(unique_sid)]
+
+#             test_plays_tr, test_plays_te = split_train_test_proportion(test_plays)
+
+#             train_data = numerize(train_plays, profile2id, show2id)
+#             train_data.to_csv(os.path.join(pro_dir, 'train.csv'), index=False)
+
+#             vad_data_tr = numerize(vad_plays_tr, profile2id, show2id)
+#             vad_data_tr.to_csv(os.path.join(pro_dir, 'validation_tr.csv'), index=False)
+
+#             vad_data_te = numerize(vad_plays_te, profile2id, show2id)
+#             vad_data_te.to_csv(os.path.join(pro_dir, 'validation_te.csv'), index=False)
+
+#             test_data_tr = numerize(test_plays_tr, profile2id, show2id)
+#             test_data_tr.to_csv(os.path.join(pro_dir, 'test_tr.csv'), index=False)
+
+#             test_data_te = numerize(test_plays_te, profile2id, show2id)
+#             test_data_te.to_csv(os.path.join(pro_dir, 'test_te.csv'), index=False)
+    
     # Split Train/Validation/Test User Indices
     tr_users = unique_uid[:(n_users - n_heldout_users * 2)]
     vd_users = unique_uid[(n_users - n_heldout_users * 2): (n_users - n_heldout_users)]
     te_users = unique_uid[(n_users - n_heldout_users):]
 
-    train_plays = raw_data.loc[raw_data['userId'].isin(tr_users)]
-    unique_sid = pd.unique(train_plays['movieId'])
+    train_plays = raw_data[raw_data['userID'].isin(user_activity.iloc[tr_users].userID)]
+    # train_plays = raw_data[raw_data['userID'].isin(tr_users)]
+    unique_sid = pd.unique(train_plays['itemID'])
+
+    unique_uid = user_activity.userID
+
+    # print(train_plays)
 
     show2id = dict((sid, i) for (i, sid) in enumerate(unique_sid))
     profile2id = dict((pid, i) for (i, pid) in enumerate(unique_uid))
@@ -147,18 +371,20 @@ if __name__ == '__main__':
 
     if not os.path.exists(pro_dir):
         os.makedirs(pro_dir)
-    
+
     with open(os.path.join(pro_dir, 'unique_sid.txt'), 'w') as f:
         for sid in unique_sid:
             f.write('%s\n' % sid)
-    
-    vad_plays = raw_data.loc[raw_data['userId'].isin(vd_users)]
-    vad_plays = vad_plays.loc[vad_plays['movieId'].isin(unique_sid)]
+
+    # vad_plays = raw_data.loc[raw_data['userID'].isin(vd_users)]
+    vad_plays = raw_data[raw_data['userID'].isin(user_activity.iloc[vd_users].userID)]
+    vad_plays = vad_plays.loc[vad_plays['itemID'].isin(unique_sid)]
 
     vad_plays_tr, vad_plays_te = split_train_test_proportion(vad_plays)
 
-    test_plays = raw_data.loc[raw_data['userId'].isin(te_users)]
-    test_plays = test_plays.loc[test_plays['movieId'].isin(unique_sid)]
+    # test_plays = raw_data.loc[raw_data['userID'].isin(te_users)]
+    test_plays = raw_data[raw_data['userID'].isin(user_activity.iloc[vd_users].userID)]
+    test_plays = test_plays.loc[test_plays['itemID'].isin(unique_sid)]
 
     test_plays_tr, test_plays_te = split_train_test_proportion(test_plays)
 
@@ -176,5 +402,10 @@ if __name__ == '__main__':
 
     test_data_te = numerize(test_plays_te, profile2id, show2id)
     test_data_te.to_csv(os.path.join(pro_dir, 'test_te.csv'), index=False)
-
+    
+    
     print("Done!")
+    
+    
+    
+

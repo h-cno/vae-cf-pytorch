@@ -1,0 +1,91 @@
+# general
+gpu_id: 0
+use_gpu: True
+seed: 0
+state: INFO
+reproducibility: True
+data_path: 'dataset/'
+checkpoint_dir: 'saved/movielens-100k'
+show_progress: True
+save_dataset: False
+save_dataloaders: False
+
+# Atomic File Format
+field_separator: "\t"
+seq_separator: "@"
+
+# Common Features
+USER_ID_FIELD: user_id
+ITEM_ID_FIELD: item_id
+RATING_FIELD: rating
+TIME_FIELD: timestamp
+seq_len: ~
+
+# Label for Point-wise DataLoader
+LABEL_FIELD: label
+
+# NegSample Prefix for Pair-wise DataLoader
+NEG_PREFIX: neg_
+
+# Sequential Model Needed
+ITEM_LIST_LENGTH_FIELD: item_length
+LIST_SUFFIX: _list
+MAX_ITEM_LIST_LENGTH: 50
+POSITION_FIELD: position_id
+
+# Knowledge-based Model Needed
+HEAD_ENTITY_ID_FIELD: head_id
+TAIL_ENTITY_ID_FIELD: tail_id
+RELATION_ID_FIELD: relation_id
+ENTITY_ID_FIELD: entity_id
+
+# Selectively Loading
+load_col:
+    inter: [user_id, item_id, timestamp, rating]
+    user: [user_id, age, gender, occupation, zip_code]
+    item: [item_id, movie_title, release_year, genre]
+unused_col:
+    inter: [timestamp, rating]
+
+# Filtering
+rm_dup_inter: ~
+val_interval: ~
+filter_inter_by_user_or_item: True
+user_inter_num_interval: "[1,inf]"
+item_inter_num_interval: "[1,inf]"
+
+# Preprocessing
+alias_of_user_id: ~
+alias_of_item_id: ~
+alias_of_entity_id: ~
+alias_of_relation_id: ~
+preload_weight: ~
+normalize_field: ~
+normalize_all: True
+
+# Training and evaluation config
+epochs: 200
+stopping_step: 10
+train_batch_size: 4096
+eval_batch_size: 4096
+neg_sampling:
+    uniform: 1
+eval_args:
+    group_by: user
+    order: TO 
+    split: {'RS': [0.8,0.1,0.1]}
+    mode: full
+metrics: ['Recall', 'ItemCoverage', 'NDCG', 'Hit']
+topk: 20
+valid_metric: Recall@20
+metric_decimal_place: 4
+
+# Model Hyperparameters
+
+latent_dimension : 200
+mlp_hidden_size: 600
+dropout_prob: 0.5
+anneal_cap: 0.2
+total_anneal_steps: 200000 
+
+# https://qiita.com/fufufukakaka/items/77878c1e23338345d4fa
