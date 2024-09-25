@@ -85,14 +85,18 @@ class EVCF(nn.Module):
         self.means = NonLinear(self.args['number_components'], np.prod(self.args['input_size']), bias=False, activation=nonlinearity).to(self.device)
 
         # init pseudo-inputs
-        normal_init(self.means.linear, self.args['pseudoinputs_mean'], self.args['pseudoinputs_std'])
+        # normal_init(self.means.linear, self.args['pseudoinputs_mean'], self.args['pseudoinputs_std'])
+        he_init(self.means.linear)
+        
+        
         # if self.args.use_training_data_init:
-        #     self.means.linear.weight.data = self.args['pseudoinputs_mean']
+        # self.means.linear.weight.data = self.args['pseudoinputs_mean']
         # else:
         #     normal_init(self.means.linear, self.args['pseudoinputs_mean'], self.args['pseudoinputs_std'])
 
         # create an idle input for calling pseudo-inputs
         self.idle_input = Variable(torch.eye(self.args['number_components'], self.args['number_components']), requires_grad=False).to(self.device)
+        
         # if self.args.cuda:
             # self.idle_input = self.idle_input.cuda()
             
@@ -110,7 +114,7 @@ class EVCF(nn.Module):
             return eps.mul(std).add_(mu)
         elif is_stochastic_predict:
             std = logvar.mul(0.5).exp_()
-            eps = torch.zeros_like(std, dtype=torch.float32, device=torch.device('cpu')).normal_()
+            eps = torch.zeros_like(std, dtype=torch.float32, device=torch.device(self.device)).normal_()
             eps = Variable(eps)
             return eps.mul(std).add_(mu)
         else:
@@ -145,7 +149,7 @@ class EVCF(nn.Module):
             RE = torch.mean(RE)
             KL = torch.mean(KL)
 
-        return loss, RE, KL
+        return loss, RE, KL, x_mean
 
 
     # ADDITIONAL METHODS
