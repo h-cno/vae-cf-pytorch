@@ -68,6 +68,15 @@ class MultiVAE(nn.Module):
             if i != len(self.p_layers) - 1:
                 h = F.tanh(h)
         return h
+    
+    def decode_wo_last_layer(self, z):
+        h = z
+        for i, layer in enumerate(self.p_layers):
+            if i == len(self.p_layers) - 1:
+                break
+            h = layer(h)
+            h = F.tanh(h)
+        return h
 
     def init_weights(self):
         for layer in self.q_layers:
